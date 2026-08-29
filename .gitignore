@@ -1,0 +1,45 @@
+# ---- Secrets (NEVER commit these) ----
+.env
+.env.*
+*.secret
+secrets/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# ---- Model weights & caches (huge; pulled at runtime, never committed) ----
+models/
+*.safetensors
+*.bin
+*.gguf
+.cache/
+huggingface/
+.hf_cache/
+
+# ---- Streamlit ----
+.streamlit/secrets.toml
+
+# ---- Docker ----
+*.log
+
+# ---- Monitoring data ----
+monitoring/grafana-data/
+monitoring/prometheus-data/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- Load test output ----
+loadtest/results/
