@@ -43,3 +43,4 @@ Thumbs.db
 
 # ---- Load test output ----
 loadtest/results/
+!.env.example
