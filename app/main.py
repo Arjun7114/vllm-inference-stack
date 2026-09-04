@@ -4,19 +4,20 @@ The application layer.
 A FastAPI service that exposes an OpenAI-compatible chat endpoint and forwards
 requests to whichever model backend is configured (mock locally, vLLM later).
 This is the layer that will grow to hold validation, auth, a guardrails slot,
-and logging -- the request pipeline. Right now it does the core job plus input
-validation: reject malformed requests at the edge with clear errors.
+and logging -- the request pipeline. It now enforces input validation and an
+API-key check before any request reaches the backend.
 """
 
 import time
 import uuid
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from pydantic import BaseModel, Field, field_validator
 
 from app.backends.base import ChatMessage
 from app.config import get_backend, settings
+from app.pipeline.auth import require_api_key
 
 app = FastAPI(title="vLLM Inference Stack -- App Layer")
 
@@ -54,14 +55,18 @@ class ChatRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    """Readiness check -- reports whether the backend is ready to serve."""
+    """Readiness check -- reports whether the backend is ready to serve.
+
+    Left unauthenticated on purpose so load balancers / orchestrators can probe
+    readiness without a key.
+    """
     ok = await backend.health()
     return {"status": "ok" if ok else "unavailable", "backend": settings.backend}
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", dependencies=[Depends(require_api_key)])
 async def chat_completions(req: ChatRequest):
-    """OpenAI-compatible chat endpoint. Forwards to the configured backend."""
+    """OpenAI-compatible chat endpoint. Protected by the API-key dependency."""
     messages = [ChatMessage(role=m.role, content=m.content) for m in req.messages]
 
     result = await backend.generate(
