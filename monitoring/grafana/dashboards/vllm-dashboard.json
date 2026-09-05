@@ -1,0 +1,54 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "vLLM Inference Stack",
+  "uid": "vllm-inference",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Running vs Waiting requests",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "vllm:num_requests_running", "legendFormat": "running" },
+        { "expr": "vllm:num_requests_waiting", "legendFormat": "waiting" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU KV-cache usage (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "vllm:gpu_cache_usage_perc * 100", "legendFormat": "kv-cache %" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Token throughput (tokens/sec)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "rate(vllm:prompt_tokens_total[1m])", "legendFormat": "prompt tok/s" },
+        { "expr": "rate(vllm:generation_tokens_total[1m])", "legendFormat": "generation tok/s" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Time to first token (p95, s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(vllm:time_to_first_token_seconds_bucket[1m]))", "legendFormat": "ttft p95" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "End-to-end request latency (p95, s)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(vllm:e2e_request_latency_seconds_bucket[1m]))", "legendFormat": "e2e p95" }
+      ]
+    }
+  ]
+}

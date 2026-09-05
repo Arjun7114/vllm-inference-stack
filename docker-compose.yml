@@ -1,9 +1,13 @@
 # ------------------------------------------------------------------------------
-# The full stack: vLLM (model server, GPU) + app (FastAPI layer).
+# The full stack:
+#   vllm        - model server (GPU)
+#   app         - FastAPI app layer
+#   prometheus  - scrapes vLLM's /metrics
+#   grafana     - dashboards over Prometheus
 #
 # Readiness gate: the app does NOT start until vLLM's healthcheck passes, so it
-# never accepts traffic before the model has finished loading (which takes
-# minutes). This is the core orchestration lesson of the phase.
+# never accepts traffic before the model has finished loading (minutes). This is
+# the core orchestration lesson of the phase.
 #
 # Run on a GPU host with the NVIDIA container runtime available.
 # ------------------------------------------------------------------------------
@@ -20,7 +24,6 @@ services:
       - VLLM_USE_FLASHINFER_SAMPLER=0
     ports:
       - "8000:8000"
-    # Reserve the GPU for this container.
     deploy:
       resources:
         reservations:
@@ -28,9 +31,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    # Healthcheck: vLLM is "healthy" only once /health returns 200, i.e. the
-    # model is loaded and the server is serving. start_period gives it time to
-    # download + load the model before failures count against it.
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -47,9 +47,30 @@ services:
       - API_KEY=${API_KEY:-dev-key-change-me}
     ports:
       - "8080:8080"
-    # The readiness gate: wait until vLLM is HEALTHY (model loaded) before
-    # starting the app. Without this, the app would accept requests the model
-    # can't yet answer.
     depends_on:
       vllm:
         condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - vllm
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      # Anonymous view access so dashboards open without a login prompt.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
