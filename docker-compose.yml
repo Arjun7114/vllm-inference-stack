@@ -1,0 +1,55 @@
+# ------------------------------------------------------------------------------
+# The full stack: vLLM (model server, GPU) + app (FastAPI layer).
+#
+# Readiness gate: the app does NOT start until vLLM's healthcheck passes, so it
+# never accepts traffic before the model has finished loading (which takes
+# minutes). This is the core orchestration lesson of the phase.
+#
+# Run on a GPU host with the NVIDIA container runtime available.
+# ------------------------------------------------------------------------------
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model mistralai/Mistral-7B-Instruct-v0.3
+      --gpu-memory-utilization 0.90
+      --max-model-len 8192
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+    ports:
+      - "8000:8000"
+    # Reserve the GPU for this container.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # Healthcheck: vLLM is "healthy" only once /health returns 200, i.e. the
+    # model is loaded and the server is serving. start_period gives it time to
+    # download + load the model before failures count against it.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 600s
+
+  app:
+    build: .
+    environment:
+      - BACKEND=vllm
+      - VLLM_BASE_URL=http://vllm:8000
+      - MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
+      - API_KEY=${API_KEY:-dev-key-change-me}
+    ports:
+      - "8080:8080"
+    # The readiness gate: wait until vLLM is HEALTHY (model loaded) before
+    # starting the app. Without this, the app would accept requests the model
+    # can't yet answer.
+    depends_on:
+      vllm:
+        condition: service_healthy
