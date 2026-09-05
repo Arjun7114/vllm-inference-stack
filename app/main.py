@@ -1,20 +1,24 @@
 """
 The application layer.
 
-A FastAPI service that exposes an OpenAI-compatible chat endpoint and forwards
-requests to whichever model backend is configured (mock locally, vLLM later).
+A FastAPI service exposing an OpenAI-compatible chat endpoint that forwards to
+whichever model backend is configured (mock locally, vLLM later). Supports both
+non-streaming (one JSON reply) and streaming (Server-Sent Events, token by token).
 
-The request pipeline, in order:
+Pipeline order:
     validate -> auth -> input guardrails -> model call -> output guardrails -> log
-Each stage is a distinct, swappable unit. Guardrails default to passthrough;
-the llm-guardrails-gateway plugs into that slot later without touching this file.
+Guardrails default to passthrough; the llm-guardrails-gateway plugs into that slot
+later without touching this file.
 """
 
+import json
 import time
 import uuid
+from collections.abc import AsyncIterator
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.backends.base import ChatMessage
@@ -25,7 +29,6 @@ from app.pipeline.logging_setup import get_logger
 
 app = FastAPI(title="vLLM Inference Stack -- App Layer")
 
-# Instances chosen by config, created once for the app's lifetime.
 backend = get_backend()
 guardrails = get_guardrails()
 logger = get_logger()
@@ -43,6 +46,7 @@ class ChatRequest(BaseModel):
     messages: list[Message] = Field(min_length=1)
     max_tokens: int = Field(default=256, ge=1, le=4096)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    stream: bool = False
 
     @field_validator("messages")
     @classmethod
@@ -63,13 +67,12 @@ async def health():
 
 @app.post("/v1/chat/completions", dependencies=[Depends(require_api_key)])
 async def chat_completions(req: ChatRequest):
-    """Run the request through the pipeline and return an OpenAI-shaped reply."""
+    """Non-streaming or streaming chat, depending on `req.stream`."""
     request_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
     started = time.perf_counter()
-
     messages = [ChatMessage(role=m.role, content=m.content) for m in req.messages]
 
-    # --- input guardrails ---
+    # --- input guardrails (applies to both modes) ---
     gate_in = await guardrails.check_input(messages)
     if not gate_in.allowed:
         logger.info("request blocked (input)", extra={"data": {
@@ -78,14 +81,17 @@ async def chat_completions(req: ChatRequest):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"Blocked by input guardrail: {gate_in.reason}")
 
-    # --- model call ---
+    if req.stream:
+        return StreamingResponse(
+            _stream_sse(req, messages, request_id, started),
+            media_type="text/event-stream",
+        )
+
+    # --- non-streaming path ---
     result = await backend.generate(
-        messages=messages,
-        max_tokens=req.max_tokens,
-        temperature=req.temperature,
+        messages=messages, max_tokens=req.max_tokens, temperature=req.temperature,
     )
 
-    # --- output guardrails ---
     gate_out = await guardrails.check_output(result.content)
     if not gate_out.allowed:
         logger.info("request blocked (output)", extra={"data": {
@@ -95,16 +101,10 @@ async def chat_completions(req: ChatRequest):
                             detail=f"Blocked by output guardrail: {gate_out.reason}")
 
     elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-
-    # --- structured log line ---
     logger.info("request completed", extra={"data": {
-        "request_id": request_id,
-        "backend": settings.backend,
-        "prompt_tokens": result.prompt_tokens,
-        "completion_tokens": result.completion_tokens,
-        "total_tokens": result.total_tokens,
-        "latency_ms": elapsed_ms,
-        "status": 200,
+        "request_id": request_id, "backend": settings.backend, "stream": False,
+        "prompt_tokens": result.prompt_tokens, "completion_tokens": result.completion_tokens,
+        "total_tokens": result.total_tokens, "latency_ms": elapsed_ms, "status": 200,
     }})
 
     return {
@@ -112,16 +112,68 @@ async def chat_completions(req: ChatRequest):
         "object": "chat.completion",
         "created": int(time.time()),
         "model": req.model or settings.model_name,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": result.content},
-                "finish_reason": "stop",
-            }
-        ],
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": result.content},
+            "finish_reason": "stop",
+        }],
         "usage": {
             "prompt_tokens": result.prompt_tokens,
             "completion_tokens": result.completion_tokens,
             "total_tokens": result.total_tokens,
         },
     }
+
+
+async def _stream_sse(
+    req: ChatRequest,
+    messages: list[ChatMessage],
+    request_id: str,
+    started: float,
+) -> AsyncIterator[str]:
+    """
+    Yield the reply as OpenAI-style Server-Sent Events. Each chunk is a line:
+        data: {json}\\n\\n
+    and the stream ends with:
+        data: [DONE]\\n\\n
+    Output guardrails run on the full accumulated text after streaming finishes.
+    """
+    created = int(time.time())
+    model = req.model or settings.model_name
+
+    def sse(delta: dict, finish: str | None = None) -> str:
+        payload = {
+            "id": request_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        }
+        return f"data: {json.dumps(payload)}\n\n"
+
+    # First chunk announces the assistant role (OpenAI convention).
+    yield sse({"role": "assistant"})
+
+    full_text = ""
+    async for chunk in backend.stream(
+        messages, max_tokens=req.max_tokens, temperature=req.temperature,
+    ):
+        full_text += chunk
+        yield sse({"content": chunk})
+
+    # Output guardrails on the complete text (after generation).
+    gate_out = await guardrails.check_output(full_text)
+    if not gate_out.allowed:
+        yield sse({"content": f"\n[blocked by output guardrail: {gate_out.reason}]"}, finish="stop")
+        yield "data: [DONE]\n\n"
+        return
+
+    # Final chunk marks completion, then the done sentinel.
+    yield sse({}, finish="stop")
+    yield "data: [DONE]\n\n"
+
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+    logger.info("request completed", extra={"data": {
+        "request_id": request_id, "backend": settings.backend, "stream": True,
+        "completion_chars": len(full_text), "latency_ms": elapsed_ms, "status": 200,
+    }})
