@@ -19,8 +19,12 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://localhost:8000"
     model_name: str = "mistralai/Mistral-7B-Instruct-v0.3"
 
-    # API key clients must present (wired into auth in a later sub-step).
+    # API key clients must present.
     api_key: str = "dev-key-change-me"
+
+    # Guardrails: path to the standalone llm-guardrails-gateway repo. If set and
+    # importable, real screening activates; otherwise the app uses passthrough.
+    guardrails_gateway_path: str = ""
 
 
 settings = Settings()
@@ -29,10 +33,9 @@ settings = Settings()
 def get_backend():
     """
     Return the backend instance selected by config. This is the single place
-    that decides mock vs vllm — the rest of the app just calls `get_backend()`.
+    that decides mock vs vllm -- the rest of the app just calls `get_backend()`.
     """
     if settings.backend == "vllm":
-        # Imported lazily so local mock dev doesn't require the vLLM backend deps.
         from app.backends.vllm_backend import VLLMBackend
         return VLLMBackend(base_url=settings.vllm_base_url, model_name=settings.model_name)
 

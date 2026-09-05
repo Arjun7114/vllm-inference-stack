@@ -6,16 +6,16 @@ small contract (`Guardrails`) and a default `PassthroughGuardrails` that allows
 everything. The chat endpoint runs the configured guardrails before and after
 the model call.
 
-Today the default does nothing. Later, the llm-guardrails-gateway drops into this
-slot by providing an implementation of `Guardrails` — no change to the endpoint
-or the rest of the app. Building the empty seam now is what makes that later
-integration a one-line swap instead of surgery.
+Which implementation is active is decided by config: if a gateway path is set,
+the external llm-guardrails-gateway is wrapped in; otherwise passthrough. The
+endpoint never changes -- this is the one-line swap the seam was built for.
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from app.backends.base import ChatMessage
+from app.config import settings
 
 
 @dataclass
@@ -40,7 +40,7 @@ class Guardrails(ABC):
 
 
 class PassthroughGuardrails(Guardrails):
-    """Default: allow everything. Replaced by real guardrails later."""
+    """Default: allow everything. Used when no gateway is configured."""
 
     async def check_input(self, messages: list[ChatMessage]) -> GuardrailResult:
         return GuardrailResult(allowed=True)
@@ -51,7 +51,11 @@ class PassthroughGuardrails(Guardrails):
 
 def get_guardrails() -> Guardrails:
     """
-    Return the configured guardrails. Single place that decides which
-    implementation is active — mirrors get_backend(). For now, always passthrough.
+    Return the configured guardrails. If a gateway path is set, wrap the external
+    llm-guardrails-gateway; otherwise passthrough. Mirrors get_backend().
     """
+    if settings.guardrails_gateway_path:
+        # Imported lazily so passthrough users don't need the gateway's deps.
+        from app.pipeline.gateway_guardrails import GatewayGuardrails
+        return GatewayGuardrails(settings.guardrails_gateway_path)
     return PassthroughGuardrails()
