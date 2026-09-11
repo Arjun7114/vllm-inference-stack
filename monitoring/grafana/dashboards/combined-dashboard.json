@@ -1,0 +1,70 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "LLM Platform (Performance + Security)",
+  "uid": "llm-combined",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-30m", "to": "now" },
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Performance",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Requests/sec (app)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "targets": [ { "expr": "sum(rate(llm_request_latency_seconds_count[1m]))", "legendFormat": "req/s" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "App-layer latency p95 (s)",
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 1 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(llm_request_latency_seconds_bucket[1m])))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(llm_request_latency_seconds_bucket[1m])))", "legendFormat": "p50" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "vLLM token throughput (tok/s)",
+      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 1 },
+      "targets": [
+        { "expr": "rate(vllm:generation_tokens_total[1m])", "legendFormat": "generation tok/s" },
+        { "expr": "rate(vllm:prompt_tokens_total[1m])", "legendFormat": "prompt tok/s" }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Security",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "type": "stat",
+      "title": "Attacks blocked",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" } } },
+      "targets": [ { "expr": "sum(llm_requests_blocked_total)", "legendFormat": "blocked" } ]
+    },
+    {
+      "type": "gauge",
+      "title": "Block rate (%)",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 10 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
+      "targets": [
+        { "expr": "100 * sum(llm_requests_blocked_total) / clamp_min(sum(llm_requests_total), 1)", "legendFormat": "block rate" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Attacks over time (by type)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "targets": [
+        { "expr": "sum by (event_type) (rate(llm_security_events_total[1m]))", "legendFormat": "{{event_type}}" }
+      ]
+    }
+  ]
+}

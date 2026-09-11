@@ -1,0 +1,75 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "LLM Security (SOC)",
+  "uid": "llm-security-soc",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-30m", "to": "now" },
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Total attacks blocked",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" } } },
+      "targets": [ { "expr": "sum(llm_requests_blocked_total)", "legendFormat": "blocked" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Total requests",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [ { "expr": "sum(llm_requests_total)", "legendFormat": "requests" } ]
+    },
+    {
+      "type": "gauge",
+      "title": "Block rate (%)",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
+      "targets": [
+        { "expr": "100 * sum(llm_requests_blocked_total) / clamp_min(sum(llm_requests_total), 1)", "legendFormat": "block rate" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Critical + high severity events",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" } } },
+      "targets": [
+        { "expr": "sum(llm_security_events_total{severity=~\"critical|high\"})", "legendFormat": "critical/high" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Attacks over time (by type)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        { "expr": "sum by (event_type) (rate(llm_security_events_total[1m]))", "legendFormat": "{{event_type}}" }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "Attack breakdown by type",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 5 },
+      "targets": [
+        { "expr": "sum by (event_type) (llm_security_events_total)", "legendFormat": "{{event_type}}" }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "By severity",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 5 },
+      "targets": [
+        { "expr": "sum by (severity) (llm_security_events_total)", "legendFormat": "{{severity}}" }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Attack volume by type & severity",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
+      "targets": [
+        { "expr": "sum by (event_type, severity, stage) (llm_security_events_total)", "format": "table", "instant": true }
+      ]
+    }
+  ]
+}
