@@ -1,0 +1,11 @@
+# Garak config -- Run A: attack raw vLLM directly (NO guardrails), port 8000.
+# Measures the model's native vulnerability with no protection. Compare to Run B.
+plugins:
+  generators:
+    openai:
+      OpenAICompatible:
+        uri: http://localhost:8000/v1/
+        name: mistralai/Mistral-7B-Instruct-v0.3
+        max_tokens: 128
+        suppressed_params:
+          - stop

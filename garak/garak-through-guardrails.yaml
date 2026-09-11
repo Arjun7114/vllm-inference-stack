@@ -1,0 +1,15 @@
+# Garak config -- Run B: attack the app layer (guardrails ON), port 8080.
+# Guardrails block attacks (HTTP 400) before they reach the model; garak scores
+# a blocked attack as a refusal -> refusal rate = guardrail block rate.
+#
+# Model name is also passed on the CLI via --target_name (most reliable in 0.16+).
+# API key comes from the OPENAICOMPATIBLE_API_KEY env var, NOT this file.
+plugins:
+  generators:
+    openai:
+      OpenAICompatible:
+        uri: http://localhost:8080/v1/
+        name: mistralai/Mistral-7B-Instruct-v0.3
+        max_tokens: 128
+        suppressed_params:
+          - stop
