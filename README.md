@@ -49,6 +49,21 @@ detector catches known attack shapes but not every novel phrasing, exactly as it
 [design notes](https://github.com/Arjun7114/llm-guardrails-gateway) state. A
 measured, benchmarked number beats an unverifiable "100%."
 
+![NVIDIA Garak A/B benchmark: guarded 41.4% vs raw 48.4% attack success](docs/images/garak-benchmark.png)
+
+---
+
+## Dashboards
+
+Performance and security are observed live via Prometheus + Grafana. Guardrail
+hits become typed, severity-rated security events on a SOC-style dashboard.
+
+**Performance + throughput**
+![Grafana performance dashboard](docs/images/grafana-performance.png)
+
+**Security (SOC) view**
+![Grafana security dashboard](docs/images/grafana-security.png)
+
 ---
 
 ## Architecture
